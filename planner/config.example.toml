@@ -1,0 +1,29 @@
+[models.default]
+name = "gpt-4.1"
+base_url = "https://api.openai.com/v1"
+api_key = "<your-api-key>"
+max_action = 100
+max_images = 5
+display_name = "Default Model"
+
+[sandbox]
+local_mode = true
+local_tool_server_endpoint = "http://127.0.0.1:8102"
+mcp_server_endpoint = "http://127.0.0.1:8000/sse"
+manager_endpoint = ""
+manager_req_timeout = 10
+tool_server_endpoint_format = "http://{sandbox_primary_ip}:8102"
+
+[planner]
+step_interval = 3
+action_wait_interval = 10
+auth_api_key = ""
+
+[log]
+env = "dev"
+filename = "agent-planner.log"
+fmt = "%(asctime)s %(levelname)7s %(filename)s:%(lineno)s - %(name)s - %(message)s"
+backup_count = 5
+max_bytes = 104857600
+datefmt = "%Y-%m-%d %H:%M:%S"
+

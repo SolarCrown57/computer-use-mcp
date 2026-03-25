@@ -1,0 +1,34 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+**/*.log
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
+# Local runtime state
+tmp/
+logs/
+
+# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+mcp_server/settings.toml
+tool_server/config.toml
+planner/config.toml
+ecs_manager/config.toml
+
