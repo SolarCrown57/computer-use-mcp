@@ -30,6 +30,7 @@ class LoggingSettings(BaseModel):
 class Settings(BaseSettings):
     port: int = 8102
     display: str = ":5"
+    computer_backend: str = "cua"
     log: LoggingSettings = LoggingSettings()
     screenshot_dir: str = "/tmp"
     model_config = SettingsConfigDict(

@@ -1,137 +1,119 @@
-# Computer Use Mcp Server 
+# CUA Computer Use MCP Server
 
-## Overview
+This package exposes computer-use tools to MCP clients. It talks directly to
+the current `trycua/cua` SDK through `cua-sandbox`, and optionally wraps
+`cua-driver` for background app/window automation.
 
-An model context protocol server for MCP client(like Claude Desktop) to control your computer. With this MCP server, clients are capable of interacting with tools that can manipulate a computer desktop environment.
+## Tool Groups
 
-## Features
+Legacy-compatible tools:
 
-- Trigger mouse events (move, click, scroll, and drag)
-- Trigger keyboard events (key press, type text)
-- Retrieve cursor position
-- Retrieve screen information (screenshot, screen size)
+- `move_mouse`
+- `click_mouse`
+- `drag_mouse`
+- `scroll`
+- `press_key`
+- `type_text`
+- `get_cursor_position`
+- `screenshot`
 
-## Available Tools
+CUA SDK tools:
 
-- `move_mouse`: Move the mouse to the specified coordinates.
-- `click_mouse`: Perform a mouse click with the specified button.
-- `drag_mouse`: Drag the mouse to the specified coordinates.
-- `scroll`: Scroll the mouse wheel.
-- `press_key`: Press the specified key.
-- `type_text`: Type the specified text.
-- `get_cursor_position`: Retrieve the current cursor position.
-- `screen_shot`: Retrieve the current screen size.
+- `cua_open_session`, `cua_close_session`, `cua_list_sessions`,
+  `cua_session_info`
+- `cua_list_sandboxes`, `cua_resume_sandbox`, `cua_suspend_sandbox`,
+  `cua_delete_sandbox`
+- `cua_screenshot`, `cua_get_screen_size`, `cua_get_environment`
+- `cua_move`, `cua_click`, `cua_double_click`, `cua_drag`, `cua_scroll`
+- `cua_type_text`, `cua_keypress`, `cua_key_down`, `cua_key_up`
+- `cua_clipboard_get`, `cua_clipboard_set`, `cua_shell`
+- `cua_terminal_create`, `cua_terminal_send`, `cua_terminal_info`,
+  `cua_terminal_close`
+- `cua_display_url`, `cua_snapshot`
+- `cua_file_list`, `cua_file_read_text`, `cua_file_write_text`
+- `cua_mobile_tap`, `cua_mobile_swipe`, `cua_mobile_key`
 
+CUA driver tools:
 
-## Getting Started
-### Prerequisites
-- Python 3.12+
-- UV
+- `cua_driver_status`, `cua_driver_doctor`,
+  `cua_driver_check_permissions`
+- `cua_driver_list_tools`, `cua_driver_describe_tool`,
+  `cua_driver_call`
+- `cua_driver_list_apps`, `cua_driver_launch_app`,
+  `cua_driver_kill_app`, `cua_driver_list_windows`
+- `cua_driver_get_window_state`, `cua_driver_screenshot`,
+  `cua_driver_click`, `cua_driver_double_click`, `cua_driver_type_text`,
+  `cua_driver_press_key`, `cua_driver_hotkey`, `cua_driver_set_value`,
+  `cua_driver_scroll`, `cua_driver_zoom`, `cua_driver_bring_to_front`
+- `cua_driver_set_agent_cursor_enabled`,
+  `cua_driver_get_agent_cursor_state`
 
-**Linux/macOS:**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+`cua_driver_call` is intentionally generic so newly added upstream driver
+tools can be used before this MCP adds a dedicated wrapper.
+
+## Install
+
+```powershell
+uv sync
 ```
 
-**Windows:**
-```bash
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+Optional agent task support:
+
+```powershell
+uv sync --extra agent
 ```
 
-**pip**
-```bash
-pip install uv
-```
+## Run
 
-### Usage
-Start the server:
-
-#### UV
-```bash
-cd computer-use/mcp_server
-uv run mcp-server
-
-# Start with stdio mode (default sse)
+```powershell
 uv run mcp-server -t stdio
 ```
 
+SSE mode is still available:
 
-#### Docker
-```bash
-cd computer-use/mcp_server
-
-# build image
-docker build -t mcp-server:latest .
-
-# run container
-docker run -d                                \
-  -p 8000:8000                               \
-  -e FASTMCP_PORT=8000                       \
-  -e TOOL_SERVER_ENDPOINT="127.0.0.1:8102"   \
-  mcp-server
-
-```
-Use the client to interact with the server.
-```
-Agent Planner | Claude Desktop | Cursor | Chainlit | ...
+```powershell
+uv run mcp-server -t sse
 ```
 
 ## Configuration
 
-MCP server's main configuration file is located at:
+Copy the example when local overrides are needed:
 
-```
-settings.toml
-
-# we use local to control deployment type of tool server
-# local = true means mcp server deploy with tool server locally
-# local = false means remote and need tool server endpoint
-
-[tool_server]
-local = false
-endpoint = "127.0.0.1:8102"
-
+```powershell
+Copy-Item settings.example.toml settings.toml
 ```
 
-This configuration file contains key settings for the server, such as logging and tool server configurations.
+Relevant settings:
 
+```toml
+[cua]
+default_session = "default"
 
-### Environment Variables
-
-The following environment variables are available for configuring the MCP server:
-
-| Environment Variable | Description | Default Value |
-|----------|------|--------|
-| `FASTMCP_PORT` | MCP server listening port | `8000` |
-| `TOOL_SERVER_ENDPOINT` | Tool server endpoint | `127.0.0.1:8102` |
-
-For example, set these environment variables before starting the server:
-
-```bash
-export FASTMCP_PORT=8000
-export TOOL_SERVER_ENDPOINT="127.0.0.1:8102"
-cd computer-use/mcp_server
-uv run mcp-server
+[cua_driver]
+command = "cua-driver"
 ```
 
-## Project Structure
+`CUA_DRIVER_COMMAND` overrides `[cua_driver].command`.
 
-```mcp_server/
-│
-├── src/                      # Source code directory
-│   ├── mcp_server/           # Main package directory
-│   │   ├── tools/            # Tool implementation modules
-│   │   │   ├── computer.py   # Computer control implementations
-│   │   └── common/           # Shared utilities
-│   │       ├── client.py     # Client utilities
-│   │       ├── errors.py     # Error utilities
-│   │       ├── logs.py       # Logging utilities
-│   │       └── config.py     # Configuration management
-│   └── main.py               # Application entry point
-│
-├── pyproject.toml            # Project metadata and dependencies
-├── settings.toml             # Project config settings
-├── uv.lock                   # Dependency lock file
-├── Dockerfile                # Container definition
-└── README.md                 # Project documentation
+## Background Automation
+
+Install `cua-driver` separately if you want background app/window control.
+
+Windows:
+
+```powershell
+irm https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1 | iex
 ```
+
+The driver wrappers default to background dispatch. When an app cannot accept a
+background message, the driver returns a structured diagnostic such as
+`background_unavailable`; the agent can then use an accessibility element path
+or explicitly call `cua_driver_bring_to_front`.
+
+## Notes
+
+- The default legacy tools lazily open a CUA `Localhost` session.
+- `cua_open_session(kind="ephemeral")` keeps the SDK context open until
+  `cua_close_session`.
+- `tool_server_client` remains in dependencies for older integration code, but
+  the current MCP tool path does not depend on the HTTP tool server.

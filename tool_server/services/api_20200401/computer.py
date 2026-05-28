@@ -12,13 +12,20 @@
 import logging
 import os
 from fastapi import HTTPException
+from common.config import get_settings
 from tools.computer import generate_request
+from tools.computer_cua import CuaLocalhostComputerTool
 from tools.computer_pyautogui import PyAutoGUIComputerTool
 from tools.computer_xdotool import XDOComputerTool
 from tools.base import camel_to_snake, BaseError
 
 
 def new_computer_tool(*args, **kwargs):
+    backend = get_settings().computer_backend.lower()
+    if backend in ("cua", "cua_localhost", "localhost"):
+        return CuaLocalhostComputerTool()
+    if backend not in ("legacy", "pyautogui", "xdotool"):
+        raise ValueError(f"Unsupported computer_backend: {backend}")
     if os.name == "nt":
         return PyAutoGUIComputerTool(*args, **kwargs)
     else:

@@ -8,19 +8,52 @@ anyio==4.9.0
     #   mcp
     #   sse-starlette
     #   starlette
+attrs==26.1.0
+    # via
+    #   jsonschema
+    #   referencing
+    #   twisted
+automat==25.4.16
+    # via twisted
+backoff==2.2.1
+    # via posthog
+bcrypt==5.0.0
+    # via paramiko
 certifi==2025.1.31
     # via
     #   httpcore
     #   httpx
     #   requests
+cffi==2.0.0
+    # via
+    #   cryptography
+    #   pynacl
 charset-normalizer==3.4.1
     # via requests
 click==8.1.8
     # via uvicorn
+colorama==0.4.6
+    # via click
 concurrent-log-handler==0.9.25
     # via mcp-server (pyproject.toml)
+constantly==23.10.4
+    # via twisted
+cryptography==48.0.0
+    # via
+    #   paramiko
+    #   vncdotool
+cua-auto==0.1.2
+    # via cua-sandbox
+cua-core==0.3.1
+    # via cua-sandbox
+cua-sandbox==0.1.16
+    # via mcp-server (pyproject.toml)
+distro==1.9.0
+    # via posthog
 dynaconf==3.2.10
     # via mcp-server (pyproject.toml)
+grpcio==1.78.0
+    # via cua-sandbox
 h11==0.14.0
     # via
     #   httpcore
@@ -28,20 +61,51 @@ h11==0.14.0
 httpcore==1.0.8
     # via httpx
 httpx==0.28.1
-    # via mcp
+    # via
+    #   cua-sandbox
+    #   mcp
 httpx-sse==0.4.0
     # via mcp
+hyperlink==21.0.0
+    # via twisted
 idna==3.10
     # via
     #   anyio
     #   httpx
+    #   hyperlink
     #   requests
+incremental==24.11.0
+    # via twisted
+invoke==3.0.3
+    # via paramiko
 jsonref==1.1.0
     # via mcp-server (pyproject.toml)
+jsonschema==4.26.0
+    # via oras
+jsonschema-specifications==2025.9.1
+    # via jsonschema
 mcp==1.6.0
     # via mcp-server (pyproject.toml)
+oras==0.2.42
+    # via cua-sandbox
+packaging==26.2
+    # via incremental
+paramiko==5.0.0
+    # via cua-sandbox
+pillow==12.2.0
+    # via
+    #   cua-auto
+    #   vncdotool
 portalocker==3.1.1
     # via concurrent-log-handler
+posthog==7.16.1
+    # via cua-core
+protobuf==6.31.1
+    # via cua-sandbox
+pycdlib==1.16.0
+    # via cua-sandbox
+pycparser==3.0
+    # via cffi
 pydantic==2.10.6
     # via
     #   mcp-server (pyproject.toml)
@@ -52,10 +116,41 @@ pydantic-core==2.27.2
     # via pydantic
 pydantic-settings==2.9.1
     # via mcp
+pymonctl==0.92
+    # via pywinctl
+pynacl==1.6.2
+    # via paramiko
+pynput==1.8.2
+    # via cua-auto
+pyperclip==1.11.0
+    # via cua-auto
 python-dotenv==1.1.0
     # via pydantic-settings
+pywin32==311
+    # via
+    #   portalocker
+    #   pymonctl
+    #   pywinbox
+    #   pywinctl
+pywinbox==0.7
+    # via pywinctl
+pywinctl==0.4.1
+    # via cua-auto
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
 requests==2.32.3
-    # via tool-server-client
+    # via
+    #   oras
+    #   posthog
+    #   tool-server-client
+rpds-py==0.30.0
+    # via
+    #   jsonschema
+    #   referencing
+six==1.17.0
+    # via pynput
 sniffio==1.3.1
     # via anyio
 sse-starlette==2.3.3
@@ -66,10 +161,20 @@ starlette==0.46.2
     #   sse-starlette
 tool-server-client==1.0.0rc7
     # via mcp-server (pyproject.toml)
+twisted==26.4.0
+    # via vncdotool
 typing-extensions==4.13.2
     # via
+    #   anyio
+    #   grpcio
+    #   posthog
     #   pydantic
     #   pydantic-core
+    #   pymonctl
+    #   pywinbox
+    #   pywinctl
+    #   referencing
+    #   twisted
     #   typing-inspection
 typing-inspection==0.4.0
     # via pydantic-settings
@@ -77,3 +182,9 @@ urllib3==2.4.0
     # via requests
 uvicorn==0.34.2
     # via mcp
+vncdotool==1.3.0
+    # via cua-sandbox
+websockets==16.0
+    # via cua-sandbox
+zope-interface==8.5
+    # via twisted

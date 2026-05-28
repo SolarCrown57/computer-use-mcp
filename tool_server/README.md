@@ -113,3 +113,15 @@ computer-use-tool-server/
 ## Configuration
 
 Configuration can be set through the `config.toml` file, primarily containing server port, logging level, and other parameters.
+
+### Computer Backend
+
+The default backend is the current `trycua/cua` SDK path:
+
+```toml
+computer_backend = "cua"
+```
+
+This routes mouse, keyboard, screenshot, and screen-size operations through
+`cua-sandbox`'s `Localhost` API. Set `computer_backend = "legacy"` to use the
+previous PyAutoGUI/XDoTool backend.

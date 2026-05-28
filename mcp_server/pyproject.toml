@@ -5,12 +5,18 @@ description = "MCP Server for Computer Use"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "cua-sandbox>=0.1.16",
     "mcp>=1.6.0",
     "pydantic==2.10.6",
     "concurrent-log-handler==0.9.25",
     "dynaconf==3.2.10",
     "jsonref==1.1.0",
     "tool_server_client==1.0.0rc7",
+]
+
+[project.optional-dependencies]
+agent = [
+    "cua-agent[cloud]>=0.8.2",
 ]
 
 [project.scripts]

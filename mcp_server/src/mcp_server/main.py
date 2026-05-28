@@ -19,6 +19,8 @@ import argparse
 
 from mcp_server.common.logs import LOG
 from mcp_server.tools import computer
+from mcp_server.tools import cua
+from mcp_server.tools import cua_driver
 from mcp_server.tools import MCP
 
 

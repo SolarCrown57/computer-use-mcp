@@ -1,5 +1,8 @@
 port = 8102
 display = ":5"
+# "cua" uses trycua/cua's new cua-sandbox Localhost API.
+# Use "legacy" to fall back to the previous PyAutoGUI/XDoTool backend.
+computer_backend = "cua"
 
 [log]
 env = "dev"

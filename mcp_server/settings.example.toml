@@ -11,3 +11,11 @@ backup_count = 10
 local = true
 endpoint = "http://127.0.0.1:8102"
 
+[cua]
+# The MCP server now opens a CUA Localhost session on demand for legacy tools.
+# Use cua_open_session to create named Localhost, Sandbox, or ephemeral sessions.
+default_session = "default"
+
+[cua_driver]
+# Optional. Install cua-driver separately to enable background app/window tools.
+command = "cua-driver"

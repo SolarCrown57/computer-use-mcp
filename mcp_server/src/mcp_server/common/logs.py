@@ -26,8 +26,13 @@ LOG.propagate = False
 
 def setup_logger(logger: logging.Logger, config: Any) -> None:
     try:
-        logger.setLevel(getattr(logging, config.level.upper(), logging.INFO))
-        log_dir = os.path.dirname(config.file)
+        level = str(getattr(config, "level", "INFO"))
+        log_file = str(getattr(config, "file", "mcp-server.log"))
+        max_size = int(getattr(config, "max_size", 1024000))
+        backup_count = int(getattr(config, "backup_count", 10))
+
+        logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+        log_dir = os.path.dirname(log_file) or "."
         os.makedirs(log_dir, exist_ok=True)
 
         formatter = logging.Formatter(
@@ -36,10 +41,10 @@ def setup_logger(logger: logging.Logger, config: Any) -> None:
         )
 
         rotate_handler = ConcurrentRotatingFileHandler(
-            config.file,
+            log_file,
             _WRITE_MODE,
-            config.max_size,
-            config.backup_count,
+            max_size,
+            backup_count,
         )
         rotate_handler.setFormatter(formatter)
         console_handler = logging.StreamHandler()

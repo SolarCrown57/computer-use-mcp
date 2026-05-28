@@ -36,3 +36,5 @@ settings = Dynaconf(
 
 log_config = settings.get("logging", {})
 tool_server_config = settings.get("tool_server", {})
+cua_config = settings.get("cua", {})
+cua_driver_config = settings.get("cua_driver", {})
