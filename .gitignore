@@ -22,6 +22,8 @@ frontend/.turbo/
 # Local runtime state
 tmp/
 logs/
+**/.runtime/
+**/.__*.lock
 
 # Local secrets and machine-specific config
 .env

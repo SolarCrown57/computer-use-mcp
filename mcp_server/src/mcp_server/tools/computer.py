@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import re
@@ -12,6 +11,7 @@ from pydantic import Field
 from mcp_server.common.errors import handle_error
 from mcp_server.common.logs import LOG
 from mcp_server.tools import MCP
+from mcp_server.tools.coordinates import coordinate_space, cursor_input_position, input_point, screenshot_point
 from mcp_server.tools.cua_sessions import get_cua_manager
 
 
@@ -32,25 +32,27 @@ async def _host(session_id: Optional[str] = None):
     return (await get_cua_manager().get_session(session_id)).instance
 
 
-@MCP.tool(name="move_mouse", description="Move the mouse pointer to the target position")
+@MCP.tool(name="move_mouse", description="Move the mouse pointer to the target position in screenshot pixels")
 async def move_mouse(
-    x: int = Field(default=50, description="X coordinate of the mouse pointer to the target position"),
-    y: int = Field(default=50, description="Y coordinate of the mouse pointer to the target position"),
+    x: int = Field(default=50, description="X coordinate in the latest screenshot pixel space"),
+    y: int = Field(default=50, description="Y coordinate in the latest screenshot pixel space"),
     endpoint: Optional[str] = Field(default=None, description="Deprecated. Kept for compatibility."),
 ):
     del endpoint
     LOG.info(f"Call move_mouse via CUA, x: {x}, y: {y}")
     try:
-        await (await _host()).mouse.move(x, y)
+        host = await _host()
+        input_x, input_y = await input_point(host, x, y)
+        await host.mouse.move(input_x, input_y)
         return _ok()
     except Exception as e:
         return handle_error("move_mouse", e)
 
 
-@MCP.tool(name="click_mouse", description="Click the mouse pointer at the target position")
+@MCP.tool(name="click_mouse", description="Click the mouse pointer at the target position in screenshot pixels")
 async def click_mouse(
-    x: int = Field(default=50, description="X coordinate of the mouse pointer to the target position"),
-    y: int = Field(default=50, description="Y coordinate of the mouse pointer to the target position"),
+    x: int = Field(default=50, description="X coordinate in the latest screenshot pixel space"),
+    y: int = Field(default=50, description="Y coordinate in the latest screenshot pixel space"),
     button: str = Field(
         default="left",
         description="Mouse button: Left, Right, Middle, or DoubleLeft",
@@ -60,25 +62,27 @@ async def click_mouse(
     del endpoint
     LOG.info(f"Call click_mouse via CUA, x: {x}, y: {y}, button: {button}")
     try:
-        mouse = (await _host()).mouse
+        host = await _host()
+        input_x, input_y = await input_point(host, x, y)
+        mouse = host.mouse
         normalized = (button or "left").lower()
         if normalized in ("doubleleft", "double_left", "double_click"):
-            await mouse.double_click(x, y)
+            await mouse.double_click(input_x, input_y)
         elif normalized == "right":
-            await mouse.right_click(x, y)
+            await mouse.right_click(input_x, input_y)
         else:
-            await mouse.click(x, y, "middle" if normalized == "middle" else "left")
+            await mouse.click(input_x, input_y, "middle" if normalized == "middle" else "left")
         return _ok()
     except Exception as e:
         return handle_error("click_mouse", e)
 
 
-@MCP.tool(name="drag_mouse", description="Drag the mouse pointer from the start position to the target position")
+@MCP.tool(name="drag_mouse", description="Drag the mouse pointer between two screenshot-pixel positions")
 async def drag_mouse(
-    source_x: int = Field(default=50, description="X coordinate of the mouse pointer at the start position"),
-    source_y: int = Field(default=50, description="Y coordinate of the mouse pointer at the start position"),
-    target_x: int = Field(default=50, description="X coordinate of the mouse pointer at the target position"),
-    target_y: int = Field(default=50, description="Y coordinate of the mouse pointer at the target position"),
+    source_x: int = Field(default=50, description="Start X coordinate in the latest screenshot pixel space"),
+    source_y: int = Field(default=50, description="Start Y coordinate in the latest screenshot pixel space"),
+    target_x: int = Field(default=50, description="End X coordinate in the latest screenshot pixel space"),
+    target_y: int = Field(default=50, description="End Y coordinate in the latest screenshot pixel space"),
     endpoint: Optional[str] = Field(default=None, description="Deprecated. Kept for compatibility."),
 ):
     del endpoint
@@ -90,7 +94,10 @@ async def drag_mouse(
         target_y,
     )
     try:
-        await (await _host()).mouse.drag(source_x, source_y, target_x, target_y)
+        host = await _host()
+        input_source_x, input_source_y = await input_point(host, source_x, source_y)
+        input_target_x, input_target_y = await input_point(host, target_x, target_y)
+        await host.mouse.drag(input_source_x, input_source_y, input_target_x, input_target_y)
         return _ok()
     except Exception as e:
         return handle_error("drag_mouse", e)
@@ -98,8 +105,8 @@ async def drag_mouse(
 
 @MCP.tool(name="scroll", description="Scroll the mouse wheel")
 async def scroll(
-    x: int = Field(default=50, description="X coordinate of the mouse pointer"),
-    y: int = Field(default=50, description="Y coordinate of the mouse pointer"),
+    x: int = Field(default=50, description="X coordinate in the latest screenshot pixel space"),
+    y: int = Field(default=50, description="Y coordinate in the latest screenshot pixel space"),
     direction: Optional[str] = Field(default="Down", description="Up, Down, Left, or Right"),
     amount: int = Field(default=3, description="Scroll amount", ge=0, le=50),
     endpoint: Optional[str] = Field(default=None, description="Deprecated. Kept for compatibility."),
@@ -120,7 +127,9 @@ async def scroll(
             scroll_x = amount
         else:
             raise ValueError(f"Invalid scroll direction: {direction}")
-        await (await _host()).mouse.scroll(x, y, scroll_x=scroll_x, scroll_y=scroll_y)
+        host = await _host()
+        input_x, input_y = await input_point(host, x, y)
+        await host.mouse.scroll(input_x, input_y, scroll_x=scroll_x, scroll_y=scroll_y)
         return _ok()
     except Exception as e:
         return handle_error("scroll", e)
@@ -161,9 +170,9 @@ async def get_cursor_position(
     del endpoint
     LOG.info("Call get_cursor_position via cua-auto")
     try:
-        import cua_auto.screen as screen
-
-        x, y = await asyncio.to_thread(screen.cursor_position)
+        host = await _host()
+        input_x, input_y = await cursor_input_position()
+        x, y = await screenshot_point(host, input_x, input_y)
         return [types.TextContent(type="text", text=json.dumps({"x": x, "y": y}))]
     except Exception as e:
         return handle_error("get_cursor_position", e)
@@ -179,8 +188,12 @@ async def screenshot(
         host = await _host()
         image = await host.screen.screenshot()
         width, height = await host.get_dimensions()
+        space = await coordinate_space(host, screenshot_size=(width, height), refresh=True)
         return [
-            types.TextContent(type="text", text=json.dumps({"width": width, "height": height})),
+            types.TextContent(
+                type="text",
+                text=json.dumps({"width": width, "height": height, **space.diagnostics()}),
+            ),
             types.ImageContent(
                 type="image",
                 data=base64.b64encode(image).decode("ascii"),

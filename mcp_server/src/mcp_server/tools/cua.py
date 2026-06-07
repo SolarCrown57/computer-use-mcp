@@ -11,6 +11,13 @@ from mcp import types
 from pydantic import Field
 
 from mcp_server.tools import MCP
+from mcp_server.tools.coordinates import (
+    coordinate_space,
+    cursor_input_position,
+    input_point,
+    is_localhost,
+    screenshot_point,
+)
 from mcp_server.tools.cua_sessions import DEFAULT_SESSION_ID, get_cua_manager, _load_cua_sdk
 
 
@@ -38,6 +45,31 @@ def _entry_to_dict(entry: Any) -> dict[str, Any]:
 
 def _json_content(data: Any) -> list[types.TextContent]:
     return [types.TextContent(type="text", text=json.dumps(data, ensure_ascii=False, indent=2))]
+
+
+def _environment_name(environment: Any) -> str:
+    if isinstance(environment, dict):
+        candidates = [
+            environment.get("os"),
+            environment.get("os_type"),
+            environment.get("platform"),
+            environment.get("system"),
+            environment.get("name"),
+        ]
+        for value in candidates:
+            if value:
+                return str(value).lower()
+        return json.dumps(environment, ensure_ascii=False).lower()
+    return str(environment or "").lower()
+
+
+def _normalise_url(url: str) -> str:
+    value = (url or "").strip()
+    if not value:
+        raise ValueError("url is required")
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", value):
+        value = "https://" + value
+    return value
 
 
 async def _get_instance(session_id: Optional[str]) -> Any:
@@ -191,7 +223,8 @@ async def cua_get_environment(session_id: Optional[str] = Field(default=None)):
 async def cua_get_screen_size(session_id: Optional[str] = Field(default=None)):
     instance = await _get_instance(session_id)
     width, height = await instance.get_dimensions()
-    return {"width": width, "height": height}
+    space = await coordinate_space(instance, screenshot_size=(width, height), refresh=True)
+    return {"width": width, "height": height, **space.diagnostics()}
 
 
 @MCP.tool(name="cua_screenshot", description="Take a screenshot from a CUA session.")
@@ -203,85 +236,96 @@ async def cua_screenshot(
     instance = await _get_instance(session_id)
     image = await instance.screen.screenshot(format=format, quality=quality)
     width, height = await instance.get_dimensions()
+    space = await coordinate_space(instance, screenshot_size=(width, height), refresh=True)
     mime = "image/jpeg" if format.lower() in ("jpeg", "jpg") else "image/png"
     return [
         types.TextContent(
             type="text",
-            text=json.dumps({"width": width, "height": height, "format": format}, ensure_ascii=False),
+            text=json.dumps({"width": width, "height": height, "format": format, **space.diagnostics()}, ensure_ascii=False),
         ),
         types.ImageContent(type="image", data=__import__("base64").b64encode(image).decode("ascii"), mimeType=mime),
     ]
 
 
-@MCP.tool(name="cua_get_cursor_position", description="Get the host cursor position when cua-auto is available.")
-async def cua_get_cursor_position():
-    try:
-        import cua_auto.screen as screen
-    except ImportError as exc:
-        raise RuntimeError("cua_get_cursor_position requires cua-auto, installed with cua-sandbox.") from exc
+@MCP.tool(name="cua_get_cursor_position", description="Get the localhost cursor position in screenshot pixels.")
+async def cua_get_cursor_position(session_id: Optional[str] = Field(default=None)):
+    instance = await _get_instance(session_id)
+    if not is_localhost(instance):
+        raise RuntimeError("cua_get_cursor_position is only available for Localhost sessions.")
 
-    x, y = await asyncio.to_thread(screen.cursor_position)
+    input_x, input_y = await cursor_input_position()
+    x, y = await screenshot_point(instance, input_x, input_y)
     return {"x": x, "y": y}
 
 
-@MCP.tool(name="cua_move", description="Move the mouse in a CUA session.")
+@MCP.tool(name="cua_move", description="Move the mouse in a CUA session using screenshot-pixel coordinates.")
 async def cua_move(
-    x: int = Field(description="X coordinate."),
-    y: int = Field(description="Y coordinate."),
+    x: int = Field(description="X coordinate in the latest screenshot pixel space."),
+    y: int = Field(description="Y coordinate in the latest screenshot pixel space."),
     session_id: Optional[str] = Field(default=None),
 ):
-    await (await _get_instance(session_id)).mouse.move(x, y)
+    instance = await _get_instance(session_id)
+    input_x, input_y = await input_point(instance, x, y)
+    await instance.mouse.move(input_x, input_y)
     return {"ok": True}
 
 
-@MCP.tool(name="cua_click", description="Click in a CUA session.")
+@MCP.tool(name="cua_click", description="Click in a CUA session using screenshot-pixel coordinates.")
 async def cua_click(
-    x: int = Field(description="X coordinate."),
-    y: int = Field(description="Y coordinate."),
+    x: int = Field(description="X coordinate in the latest screenshot pixel space."),
+    y: int = Field(description="Y coordinate in the latest screenshot pixel space."),
     button: str = Field(default="left", description="left, right, or middle."),
     session_id: Optional[str] = Field(default=None),
 ):
-    mouse = (await _get_instance(session_id)).mouse
+    instance = await _get_instance(session_id)
+    input_x, input_y = await input_point(instance, x, y)
+    mouse = instance.mouse
     if button == "right":
-        await mouse.right_click(x, y)
+        await mouse.right_click(input_x, input_y)
     else:
-        await mouse.click(x, y, button=button)
+        await mouse.click(input_x, input_y, button=button)
     return {"ok": True}
 
 
-@MCP.tool(name="cua_double_click", description="Double-click in a CUA session.")
+@MCP.tool(name="cua_double_click", description="Double-click in a CUA session using screenshot-pixel coordinates.")
 async def cua_double_click(
-    x: int = Field(description="X coordinate."),
-    y: int = Field(description="Y coordinate."),
+    x: int = Field(description="X coordinate in the latest screenshot pixel space."),
+    y: int = Field(description="Y coordinate in the latest screenshot pixel space."),
     session_id: Optional[str] = Field(default=None),
 ):
-    await (await _get_instance(session_id)).mouse.double_click(x, y)
+    instance = await _get_instance(session_id)
+    input_x, input_y = await input_point(instance, x, y)
+    await instance.mouse.double_click(input_x, input_y)
     return {"ok": True}
 
 
-@MCP.tool(name="cua_mouse_down", description="Press a mouse button in a CUA session.")
+@MCP.tool(name="cua_mouse_down", description="Press a mouse button in a CUA session using screenshot-pixel coordinates.")
 async def cua_mouse_down(
     x: int,
     y: int,
     button: str = Field(default="left"),
     session_id: Optional[str] = Field(default=None),
 ):
-    await (await _get_instance(session_id)).mouse.mouse_down(x, y, button=button)
+    instance = await _get_instance(session_id)
+    input_x, input_y = await input_point(instance, x, y)
+    await instance.mouse.mouse_down(input_x, input_y, button=button)
     return {"ok": True}
 
 
-@MCP.tool(name="cua_mouse_up", description="Release a mouse button in a CUA session.")
+@MCP.tool(name="cua_mouse_up", description="Release a mouse button in a CUA session using screenshot-pixel coordinates.")
 async def cua_mouse_up(
     x: int,
     y: int,
     button: str = Field(default="left"),
     session_id: Optional[str] = Field(default=None),
 ):
-    await (await _get_instance(session_id)).mouse.mouse_up(x, y, button=button)
+    instance = await _get_instance(session_id)
+    input_x, input_y = await input_point(instance, x, y)
+    await instance.mouse.mouse_up(input_x, input_y, button=button)
     return {"ok": True}
 
 
-@MCP.tool(name="cua_drag", description="Drag between two points in a CUA session.")
+@MCP.tool(name="cua_drag", description="Drag between two screenshot-pixel points in a CUA session.")
 async def cua_drag(
     start_x: int,
     start_y: int,
@@ -290,11 +334,14 @@ async def cua_drag(
     button: str = Field(default="left"),
     session_id: Optional[str] = Field(default=None),
 ):
-    await (await _get_instance(session_id)).mouse.drag(start_x, start_y, end_x, end_y, button=button)
+    instance = await _get_instance(session_id)
+    input_start_x, input_start_y = await input_point(instance, start_x, start_y)
+    input_end_x, input_end_y = await input_point(instance, end_x, end_y)
+    await instance.mouse.drag(input_start_x, input_start_y, input_end_x, input_end_y, button=button)
     return {"ok": True}
 
 
-@MCP.tool(name="cua_scroll", description="Scroll in a CUA session.")
+@MCP.tool(name="cua_scroll", description="Scroll in a CUA session from a screenshot-pixel coordinate.")
 async def cua_scroll(
     x: int,
     y: int,
@@ -302,7 +349,9 @@ async def cua_scroll(
     scroll_y: int = Field(default=3),
     session_id: Optional[str] = Field(default=None),
 ):
-    await (await _get_instance(session_id)).mouse.scroll(x, y, scroll_x=scroll_x, scroll_y=scroll_y)
+    instance = await _get_instance(session_id)
+    input_x, input_y = await input_point(instance, x, y)
+    await instance.mouse.scroll(input_x, input_y, scroll_x=scroll_x, scroll_y=scroll_y)
     return {"ok": True}
 
 
@@ -360,6 +409,66 @@ async def cua_clipboard_set(
 ):
     await (await _get_instance(session_id)).clipboard.set(text)
     return {"ok": True}
+
+
+@MCP.tool(name="cua_open_url", description="Open a URL through the desktop UI without running shell commands.")
+async def cua_open_url(
+    url: str = Field(description="URL or domain to open. Missing schemes default to https://."),
+    session_id: Optional[str] = Field(default=None),
+    wait_ms: int = Field(default=1000, ge=0, le=30000),
+    restore_clipboard: bool = Field(default=True, description="Restore previous clipboard text after launching."),
+):
+    instance = await _get_instance(session_id)
+    normalized_url = _normalise_url(url)
+    environment = None
+    try:
+        environment = await instance.get_environment()
+    except Exception:
+        pass
+    environment_text = _environment_name(environment)
+
+    old_clipboard = None
+    clipboard_available = False
+    if restore_clipboard:
+        try:
+            old_clipboard = await instance.clipboard.get()
+            clipboard_available = True
+        except Exception:
+            clipboard_available = False
+
+    keyboard = instance.keyboard
+    if "windows" in environment_text or environment_text in ("", "win32"):
+        method = "windows_run_dialog"
+        paste_keys: str | list[str] = ["ctrl", "v"]
+        await keyboard.keypress(["win", "r"])
+    elif "darwin" in environment_text or "mac" in environment_text:
+        method = "macos_spotlight"
+        paste_keys = ["cmd", "v"]
+        await keyboard.keypress(["cmd", "space"])
+    else:
+        method = "desktop_launcher"
+        paste_keys = ["ctrl", "v"]
+        await keyboard.keypress(["alt", "f2"])
+
+    await asyncio.sleep(0.4)
+    await instance.clipboard.set(normalized_url)
+    await keyboard.keypress(paste_keys)
+    await keyboard.keypress("enter")
+    if wait_ms:
+        await asyncio.sleep(wait_ms / 1000)
+
+    if restore_clipboard and clipboard_available:
+        try:
+            await instance.clipboard.set(old_clipboard or "")
+        except Exception:
+            clipboard_available = False
+
+    return {
+        "ok": True,
+        "url": normalized_url,
+        "method": method,
+        "clipboard_restored": bool(restore_clipboard and clipboard_available),
+    }
 
 
 @MCP.tool(name="cua_shell", description="Run a shell command inside a CUA session.")

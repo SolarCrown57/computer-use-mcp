@@ -9,6 +9,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from mcp.server.fastmcp import FastMCP
 
-MCP = FastMCP(name="computer_use")
+
+@asynccontextmanager
+async def _lifespan(_server: FastMCP) -> AsyncIterator[dict[str, object]]:
+    try:
+        yield {}
+    finally:
+        from mcp_server.tools.cua_sessions import get_cua_manager
+
+        await get_cua_manager().close_all()
+
+
+MCP = FastMCP(name="computer_use", lifespan=_lifespan)

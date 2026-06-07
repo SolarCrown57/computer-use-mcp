@@ -26,7 +26,7 @@ CUA SDK tools:
 - `cua_screenshot`, `cua_get_screen_size`, `cua_get_environment`
 - `cua_move`, `cua_click`, `cua_double_click`, `cua_drag`, `cua_scroll`
 - `cua_type_text`, `cua_keypress`, `cua_key_down`, `cua_key_up`
-- `cua_clipboard_get`, `cua_clipboard_set`, `cua_shell`
+- `cua_clipboard_get`, `cua_clipboard_set`, `cua_open_url`, `cua_shell`
 - `cua_terminal_create`, `cua_terminal_send`, `cua_terminal_info`,
   `cua_terminal_close`
 - `cua_display_url`, `cua_snapshot`
@@ -95,6 +95,28 @@ command = "cua-driver"
 
 `CUA_DRIVER_COMMAND` overrides `[cua_driver].command`.
 
+## Desktop URL Launch
+
+`cua_open_url` opens a URL through the visible desktop UI without invoking a
+shell command. It uses the session clipboard plus the platform launcher
+(`Win+R` on Windows, Spotlight on macOS, app launcher on Linux), then restores
+the previous clipboard text by default.
+
+## Coordinate Space
+
+Legacy tools and CUA SDK mouse tools accept coordinates in the pixel space of
+the latest screenshot returned by `screenshot` or `cua_screenshot`. On Windows
+localhost sessions, the MCP server starts as per-monitor DPI aware and maps
+those screenshot pixels to the native virtual desktop input space before
+calling `cua_auto` mouse APIs. This keeps screenshot, cursor, click, drag, and
+scroll coordinates aligned on scaled displays.
+
+Screenshot responses include coordinate diagnostics such as `coordinate_space`,
+`input_width`, `input_height`, `scale_x`, and `scale_y`. `scale_x`/`scale_y`
+should normally be `1.0` after the Windows `cua_auto` screenshot fix; non-1.0
+values mean the MCP wrapper is compensating for a backend that still returns a
+resized screenshot.
+
 ## Background Automation
 
 Install `cua-driver` separately if you want background app/window control.
@@ -113,6 +135,8 @@ or explicitly call `cua_driver_bring_to_front`.
 ## Notes
 
 - The default legacy tools lazily open a CUA `Localhost` session.
+- Stdio mode watches its parent process and closes open CUA sessions on server
+  shutdown, so interrupted MCP clients do not leave long-lived server workers.
 - `cua_open_session(kind="ephemeral")` keeps the SDK context open until
   `cua_close_session`.
 - `tool_server_client` remains in dependencies for older integration code, but

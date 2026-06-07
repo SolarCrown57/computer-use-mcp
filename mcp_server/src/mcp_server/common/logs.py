@@ -11,11 +11,12 @@
 
 import os
 import logging
+from pathlib import Path
 
 from concurrent_log_handler import ConcurrentRotatingFileHandler
 from typing import Any, TypeVar
 
-from mcp_server.common.config import log_config
+from mcp_server.common.config import log_config, root_dir
 
 _WRITE_MODE = "a"
 T = TypeVar("T")
@@ -24,15 +25,24 @@ LOG = logging.getLogger(__name__)
 LOG.propagate = False
 
 
+def _config_get(config: Any, key: str, default: Any) -> Any:
+    if isinstance(config, dict):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
 def setup_logger(logger: logging.Logger, config: Any) -> None:
     try:
-        level = str(getattr(config, "level", "INFO"))
-        log_file = str(getattr(config, "file", "mcp-server.log"))
-        max_size = int(getattr(config, "max_size", 1024000))
-        backup_count = int(getattr(config, "backup_count", 10))
+        level = str(_config_get(config, "level", "INFO"))
+        default_log_file = Path(root_dir) / ".runtime" / "mcp-server.log"
+        log_file = Path(str(_config_get(config, "file", default_log_file)))
+        if not log_file.is_absolute():
+            log_file = Path(root_dir) / log_file
+        max_size = int(_config_get(config, "max_size", 1024000))
+        backup_count = int(_config_get(config, "backup_count", 10))
 
         logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-        log_dir = os.path.dirname(log_file) or "."
+        log_dir = os.path.dirname(str(log_file)) or "."
         os.makedirs(log_dir, exist_ok=True)
 
         formatter = logging.Formatter(
@@ -41,7 +51,7 @@ def setup_logger(logger: logging.Logger, config: Any) -> None:
         )
 
         rotate_handler = ConcurrentRotatingFileHandler(
-            log_file,
+            str(log_file),
             _WRITE_MODE,
             max_size,
             backup_count,
