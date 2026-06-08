@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import os
 import platform
 import shutil
+import time
+from ctypes import wintypes
 from typing import Any, Optional
 
 from mcp import types
@@ -103,6 +106,137 @@ async def _call_driver_tool(tool: str, arguments: Optional[dict[str, Any]], time
     return await _run_driver(["call", tool], stdin_json=arguments or {}, timeout=timeout)
 
 
+def _set_foreground_window(user32: Any, window_id: int) -> dict[str, Any]:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    user32.AttachThreadInput.restype = wintypes.BOOL
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    user32.BringWindowToTop.restype = wintypes.BOOL
+    user32.SetActiveWindow.argtypes = [wintypes.HWND]
+    user32.SetActiveWindow.restype = wintypes.HWND
+    kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
+    hwnd = wintypes.HWND(window_id)
+    foreground = user32.GetForegroundWindow()
+    foreground_id = int(foreground or 0)
+    current_thread_id = kernel32.GetCurrentThreadId()
+    foreground_thread_id = (
+        user32.GetWindowThreadProcessId(wintypes.HWND(foreground_id), None) if foreground_id else 0
+    )
+    target_thread_id = user32.GetWindowThreadProcessId(hwnd, None)
+    attached_thread_ids: list[int] = []
+
+    for thread_id in {foreground_thread_id, target_thread_id}:
+        if thread_id and thread_id != current_thread_id:
+            if user32.AttachThreadInput(current_thread_id, thread_id, True):
+                attached_thread_ids.append(thread_id)
+
+    try:
+        set_foreground = bool(user32.SetForegroundWindow(hwnd))
+        bring_to_top = bool(user32.BringWindowToTop(hwnd))
+        active_window = user32.SetActiveWindow(hwnd)
+    finally:
+        for thread_id in attached_thread_ids:
+            user32.AttachThreadInput(current_thread_id, thread_id, False)
+
+    return {
+        "set_foreground": set_foreground,
+        "bring_to_top": bring_to_top,
+        "active_window": int(active_window or 0),
+        "attached_thread_count": len(attached_thread_ids),
+    }
+
+
+def _restore_window_without_activate(window_id: int) -> dict[str, Any]:
+    if platform.system() != "Windows":
+        return {
+            "ok": False,
+            "available": True,
+            "message": "restore_without_activate is only implemented on Windows.",
+        }
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    hwnd = wintypes.HWND(window_id)
+    if not user32.IsWindow(hwnd):
+        return {
+            "ok": False,
+            "available": True,
+            "window_id": window_id,
+            "message": "window_id is not a valid HWND.",
+        }
+
+    sw_shownoactivate = 4
+    sw_restore = 9
+    swp_nosize = 0x0001
+    swp_nomove = 0x0002
+    swp_nozorder = 0x0004
+    swp_noactivate = 0x0010
+    swp_showwindow = 0x0040
+
+    was_iconic = bool(user32.IsIconic(hwnd))
+    was_visible = bool(user32.IsWindowVisible(hwnd))
+    previous_foreground = user32.GetForegroundWindow()
+    previous_foreground_id = int(previous_foreground or 0)
+    hwnd_id = int(hwnd.value or 0)
+    used_restore_fallback = False
+    foreground_restore: dict[str, Any] = {}
+
+    user32.ShowWindowAsync(hwnd, sw_shownoactivate)
+    user32.SetWindowPos(
+        hwnd,
+        None,
+        0,
+        0,
+        0,
+        0,
+        swp_nomove | swp_nosize | swp_nozorder | swp_noactivate | swp_showwindow,
+    )
+
+    if user32.IsIconic(hwnd):
+        used_restore_fallback = True
+        for _ in range(2):
+            user32.ShowWindow(hwnd, sw_restore)
+            time.sleep(0.2)
+            if not user32.IsIconic(hwnd):
+                break
+        if previous_foreground_id and previous_foreground_id != hwnd_id:
+            foreground_restore = _set_foreground_window(user32, previous_foreground_id)
+        user32.SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            swp_nomove | swp_nosize | swp_nozorder | swp_noactivate | swp_showwindow,
+        )
+
+    is_iconic = bool(user32.IsIconic(hwnd))
+    is_visible = bool(user32.IsWindowVisible(hwnd))
+    foreground = user32.GetForegroundWindow()
+    foreground_id = int(foreground or 0)
+    return {
+        "ok": is_visible and not is_iconic,
+        "available": True,
+        "window_id": window_id,
+        "was_minimized": was_iconic,
+        "was_visible": was_visible,
+        "is_minimized": is_iconic,
+        "is_visible": is_visible,
+        "used_restore_fallback": used_restore_fallback,
+        "foreground_restore": foreground_restore,
+        "previous_foreground": previous_foreground_id,
+        "foreground": foreground_id,
+        "foreground_restored": not previous_foreground_id or foreground_id == previous_foreground_id,
+        "activated": foreground_id == hwnd_id,
+    }
+
+
 def _content_with_optional_image(data: dict[str, Any]) -> Any:
     b64 = data.get("screenshot_png_b64")
     mime = data.get("screenshot_mime_type") or "image/png"
@@ -190,8 +324,11 @@ async def cua_driver_launch_app(
     urls: Optional[list[str]] = Field(default=None, description="URLs to open."),
     additional_arguments: Optional[list[str]] = Field(default=None),
     start_minimized: bool = Field(
-        default=True,
-        description="Windows: keep launched window minimized/non-active for background work.",
+        default=False,
+        description=(
+            "Windows: start minimized when true. The default is false so the target is "
+            "materialized without stealing focus, which keeps UIA/background dispatch usable."
+        ),
     ),
     timeout: int = Field(default=60, ge=1),
 ):
@@ -210,6 +347,18 @@ async def cua_driver_launch_app(
         if value is not None
     }
     return await _call_driver_tool("launch_app", arguments, timeout)
+
+
+@MCP.tool(name="cua_driver_restore_without_activate", description="Restore/show a Windows window without stealing foreground focus.")
+async def cua_driver_restore_without_activate(
+    window_id: int = Field(description="Windows HWND / cua-driver window_id to restore."),
+    pid: Optional[int] = Field(default=None, description="Optional pid used only to include refreshed window diagnostics."),
+    timeout: int = Field(default=20, ge=1),
+):
+    result = _restore_window_without_activate(window_id)
+    if pid is not None:
+        result["windows"] = await _call_driver_tool("list_windows", {"pid": pid}, timeout)
+    return result
 
 
 @MCP.tool(name="cua_driver_kill_app", description="Kill an app by pid using cua-driver.")

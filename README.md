@@ -114,6 +114,18 @@ cua_driver_doctor
 cua_driver_list_tools
 ```
 
+Windows background launch behavior:
+
+- `cua_driver_launch_app` defaults to `start_minimized=false`.
+- This keeps the target window materialized but non-active, so UIA trees,
+  `set_value`, background clicks, and PostMessage text input remain usable
+  while the current foreground app keeps focus.
+- Avoid minimized windows as background targets for modern Windows apps:
+  minimized XAML/UWP windows often expose an incomplete UIA tree.
+- If a target is already minimized, call
+  `cua_driver_restore_without_activate(window_id=...)` to show it without
+  stealing foreground focus.
+
 driver 工具默认使用 background dispatch。部分 Windows 目标窗口可能返回
 `background_unavailable`，这时返回值会说明应该改用 accessibility element 路径，
 还是显式调用 `cua_driver_bring_to_front` 后再执行前台 dispatch。
