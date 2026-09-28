@@ -5,6 +5,7 @@ description = "MCP Server for Computer Use"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anyio>=4,<5",
     "cua-sandbox>=0.1.16",
     "mcp>=1.6.0",
     "pydantic==2.10.6",
@@ -19,9 +20,30 @@ agent = [
     "cua-agent[cloud]>=0.8.2",
 ]
 
+[dependency-groups]
+test = [
+    "pytest>=8.3,<10",
+    "pytest-asyncio>=0.24,<2",
+    "pytest-cov>=6,<8",
+]
+
 [project.scripts]
 mcp-server = "mcp_server.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "windows_e2e: requires a dedicated interactive Windows desktop runner and the pinned driver release",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["mcp_server"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

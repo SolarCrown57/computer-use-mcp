@@ -1,0 +1,72 @@
+name: Python unit and protocol checks
+
+on:
+  push:
+    paths:
+      - "cua-driver.lock.json"
+      - "scripts/**"
+      - "mcp_server/**"
+      - ".github/workflows/python-ci.yml"
+  pull_request:
+    paths:
+      - "cua-driver.lock.json"
+      - "scripts/**"
+      - "mcp_server/**"
+      - ".github/workflows/python-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mcp_server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.11"
+          enable-cache: true
+          cache-dependency-glob: "mcp_server/uv.lock"
+      - name: Verify locked dependencies
+        run: uv sync --locked --group test
+      - name: Parse PowerShell installer
+        shell: pwsh
+        working-directory: .
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "scripts/install-cua-driver.ps1"),
+            [ref]$null,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+      - name: Enforce safety-critical module coverage
+        shell: pwsh
+        run: |
+          uv run --locked --group test pytest tests/test_cua_driver.py --cov=mcp_server.tools.cua_driver --cov-report=term-missing --cov-fail-under=85
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --locked --group test pytest tests/test_cua_sessions.py --cov=mcp_server.tools.cua_sessions --cov-report=term-missing --cov-fail-under=90
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run unit tests with coverage
+        run: >-
+          uv run --locked --group test pytest
+          --cov=mcp_server
+          --cov-report=term-missing
+          --cov-report=xml
+          -m "not windows_e2e"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-coverage
+          path: mcp_server/coverage.xml
+          if-no-files-found: ignore

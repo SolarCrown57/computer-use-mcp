@@ -18,7 +18,7 @@ from mcp_server.tools.coordinates import (
     is_localhost,
     screenshot_point,
 )
-from mcp_server.tools.cua_sessions import DEFAULT_SESSION_ID, get_cua_manager, _load_cua_sdk
+from mcp_server.tools.cua_sessions import get_cua_manager, _load_cua_sdk
 
 
 def _normalise_keys(keys: str | list[str]) -> str | list[str]:
@@ -142,7 +142,7 @@ async def cua_list_sessions():
 
 @MCP.tool(name="cua_close_session", description="Close a CUA session. Persistent sandboxes keep running unless destroy=true.")
 async def cua_close_session(
-    session_id: str = Field(default=DEFAULT_SESSION_ID),
+    session_id: str = Field(default=get_cua_manager().default_session_id),
     destroy: bool = Field(default=False, description="Destroy/delete the backing sandbox when supported."),
 ):
     return await get_cua_manager().close_session(session_id, destroy=destroy)
@@ -181,25 +181,13 @@ async def cua_resume_sandbox(
     local: bool = Field(default=True),
     api_key: Optional[str] = Field(default=None),
 ):
-    _, _, Sandbox = _load_cua_sdk()
-    instance = await Sandbox.resume(name, local=local, api_key=api_key)
-    manager = get_cua_manager()
-    resolved_id = session_id or name
-    if resolved_id in manager._sessions:
-        await manager.close_session(resolved_id, destroy=False)
-    now = __import__("time").time()
-    from mcp_server.tools.cua_sessions import CuaSession
-
-    manager._sessions[resolved_id] = CuaSession(
-        session_id=resolved_id,
-        kind="connect",
-        target=name,
-        instance=instance,
-        persistent=True,
-        created_at=now,
-        last_used_at=now,
+    session = await get_cua_manager().resume_sandbox(
+        name=name,
+        session_id=session_id,
+        local=local,
+        api_key=api_key,
     )
-    return await manager._sessions[resolved_id].info()
+    return await session.info()
 
 
 @MCP.tool(name="cua_suspend_sandbox", description="Suspend a persistent CUA sandbox by name.")

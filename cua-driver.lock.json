@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "published": false,
+  "repository": "SolarCrown57/cua",
+  "tag": "cua-driver-rs-v0.7.1-sc.1",
+  "version": "0.7.1-sc.1",
+  "protocol": "sc.background.v1",
+  "required_tools": [
+    "check_permissions",
+    "list_apps",
+    "list_windows",
+    "launch_app",
+    "get_window_state",
+    "screenshot",
+    "click",
+    "type_text",
+    "press_key",
+    "hotkey",
+    "set_value",
+    "scroll",
+    "restore_without_activate",
+    "cancel_operation"
+  ],
+  "assets": {
+    "windows-x86_64": {
+      "name": "cua-driver-rs-0.7.1-sc.1-windows-x86_64.zip",
+      "url": "https://github.com/SolarCrown57/cua/releases/download/cua-driver-rs-v0.7.1-sc.1/cua-driver-rs-0.7.1-sc.1-windows-x86_64.zip",
+      "sha256": null
+    }
+  }
+}

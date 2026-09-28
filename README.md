@@ -57,7 +57,7 @@ MCP Client
 
 ```powershell
 cd mcp_server
-uv sync
+uv sync --locked
 ```
 
 启动 MCP：
@@ -96,17 +96,28 @@ Windows 也可以直接运行：
 
 ## 后台操作
 
-后台窗口/应用操作依赖 `cua-driver`，这是 CUA 的独立二进制。MCP 服务会检测
-`PATH` 中是否存在 `cua-driver`；如果没有安装，`cua_driver_status` 会返回安装
-提示，而不会导致整个 MCP 服务启动失败。
+后台窗口/应用操作只支持仓库锁定的 `cua-driver` fork。版本、协议、发布资产和
+校验值记录在 [`cua-driver.lock.json`](cua-driver.lock.json)；运行时必须同时匹配
+`0.7.1-sc.1` 和 `sc.background.v1`，否则诊断工具仍可用，但启动和输入工具会
+以 `driver_incompatible` 失败关闭。
 
-Windows 安装命令：
+Windows x86_64 本地安装命令：
 
 ```powershell
-irm https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1 | iex
+.\scripts\install-cua-driver.ps1
 ```
 
-安装后重启 MCP，并先运行：
+安装器只从锁定的 `SolarCrown57/cua` release 下载，把驱动安装到
+`.tools/cua-driver/<version>`，并在展开前验证 SHA256。当前锁文件的
+`published=false` 表示目标 fork release 尚未发布，安装器会明确拒绝下载；发布
+流程必须在 fork 的 Windows E2E 通过后填入真实 SHA256 并改为 `true`，不能使用
+占位校验值或自动退回 upstream/PATH 中的不兼容版本。
+
+锁文件只能在 fork E2E 和本仓库的 MCP 交互式 E2E 都通过后更新。回滚时恢复上一
+个已验收 release 的完整锁记录，不得只替换下载 URL 或跳过校验。
+
+发布并安装后，把安装器返回的 `command` 路径写入 `CUA_DRIVER_COMMAND` 或
+`mcp_server/settings.toml`，重启 MCP，然后运行：
 
 ```text
 cua_driver_status
@@ -114,21 +125,31 @@ cua_driver_doctor
 cua_driver_list_tools
 ```
 
-Windows background launch behavior:
+### 严格后台契约
 
-- `cua_driver_launch_app` defaults to `start_minimized=false`.
-- This keeps the target window materialized but non-active, so UIA trees,
-  `set_value`, background clicks, and PostMessage text input remain usable
-  while the current foreground app keeps focus.
-- Avoid minimized windows as background targets for modern Windows apps:
-  minimized XAML/UWP windows often expose an incomplete UIA tree.
-- If a target is already minimized, call
-  `cua_driver_restore_without_activate(window_id=...)` to show it without
-  stealing foreground focus.
+- 所有 driver 结果保留 `ok`、`available`、`stdout`、`stderr`，并返回
+  `verified`、`error_code`、`message`、`details`、`target`、`foreground`。
+- `verified=true` 只表示目标身份、投递路径和前台保持已经确认；有可靠读回能力时
+  还必须验证实际效果。投递成功但无法确认效果不能当作成功。
+- `cua_driver_launch_app` 必须且只能给出一种应用标识，名称采用大小写无关的精确
+  匹配；`instance_policy` 默认为 `reuse`，`preserve_foreground` 默认为 `true`。
+- 后台失败不会自动切换到前台。只有调用方显式选择 `dispatch="foreground"` 或
+  调用 `cua_driver_bring_to_front` 才允许改变焦点。
 
-driver 工具默认使用 background dispatch。部分 Windows 目标窗口可能返回
-`background_unavailable`，这时返回值会说明应该改用 accessibility element 路径，
-还是显式调用 `cua_driver_bring_to_front` 后再执行前台 dispatch。
+| Windows 目标 | 后台点击/赋值 | 按键/文本 | 无激活恢复/截图 |
+| --- | --- | --- | --- |
+| Win32 / 原生控件 | 可取消的 PostMessage/注入路径经验证时支持；`set_value` 暂不支持 | PostMessage 经验证时支持；显式前台使用可取消 SendInput | 原生能力确认时支持 |
+| XAML / WinUI / UWP | 不可取消的 UIA 变更路径拒绝为 `background_unavailable` 或 `tool_unsupported` | 后台拒绝；调用方可显式选择前台 | 仅原生能力确认时支持 |
+| WebView2 / Electron | UIA/CDP 后台变更路径拒绝；不会回退前台 | 后台拒绝不可靠路径；调用方可显式选择前台 | 截图经身份校验后支持 |
+| 无稳定 PID/HWND 的目标 | 拒绝 | 拒绝 | 拒绝 |
+
+Windows `page.execute_javascript`、`page.click_element` 和 `set_value` 在可终止的
+helper-process 边界完成前保持失败关闭；只读 `page.get_text` / `page.query_dom` 仍可用。
+
+常见严格错误码包括 `tool_unsupported`、`target_ambiguous`、`target_mismatch`、
+`background_unavailable`、`background_no_effect`、`foreground_changed`、
+`operation_timeout` 和 `operation_cancelled`。不要把这些错误无条件重试；长文本失败时
+应根据返回的已确认写入量决定后续动作。
 
 ## CUA Agent 任务工具
 
@@ -136,7 +157,7 @@ driver 工具默认使用 background dispatch。部分 Windows 目标窗口可�
 
 ```powershell
 cd mcp_server
-uv sync --extra agent
+uv sync --locked --extra agent
 ```
 
 然后按所选 `cua-agent` 模型配置对应 provider 的 API key。
@@ -177,6 +198,8 @@ computer_backend = "cua"
 - lockfile 已保留，方便复现依赖。
 - `tool_server_client` 仍在 MCP 依赖中保留，用于兼容旧集成代码。
 - `cua-driver` 是可选能力；没安装时只有 `cua_driver_*` 后台工具不可用。
+- `cua_open_session(replace=true)` 不会销毁旧 sandbox；资源销毁只由显式
+  `cua_close_session(destroy=true)` 或 `cua_delete_sandbox` 执行。
 
 ## License And Attribution
 

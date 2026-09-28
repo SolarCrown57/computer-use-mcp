@@ -54,13 +54,20 @@ tools can be used before this MCP adds a dedicated wrapper.
 ## Install
 
 ```powershell
-uv sync
+uv sync --locked
 ```
 
 Optional agent task support:
 
 ```powershell
-uv sync --extra agent
+uv sync --locked --extra agent
+```
+
+Test dependencies use the dedicated dependency group:
+
+```powershell
+uv sync --locked --group test
+uv run --locked --group test pytest
 ```
 
 ## Run
@@ -119,18 +126,55 @@ resized screenshot.
 
 ## Background Automation
 
-Install `cua-driver` separately if you want background app/window control.
+Background automation accepts only the fork release pinned by the repository
+root `cua-driver.lock.json`: version `0.7.1-sc.1`, protocol
+`sc.background.v1`, from `SolarCrown57/cua`. A different executable may still
+be inspected with diagnostic commands, but launch, input, and generic driver
+calls fail closed with `driver_incompatible`.
 
-Windows:
+Install the pinned Windows x86_64 asset from the repository root:
 
 ```powershell
-irm https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.ps1 | iex
+.\scripts\install-cua-driver.ps1
 ```
 
-The driver wrappers default to background dispatch. When an app cannot accept a
-background message, the driver returns a structured diagnostic such as
-`background_unavailable`; the agent can then use an accessibility element path
-or explicitly call `cua_driver_bring_to_front`.
+The installer validates the release URL and SHA256 before extracting under
+`.tools/cua-driver/<version>`. It refuses a lock with `published=false` or a
+missing checksum. That is the expected state until the fork release has passed
+its Windows E2E gate; there is no automatic upstream fallback.
+
+Update the lock only after both the fork E2E and this repository's interactive
+MCP E2E pass. Roll back by restoring the complete lock entry for the previous
+accepted release, never by changing only the URL or bypassing verification.
+
+Driver results retain `ok`, `available`, `stdout`, and `stderr`, and add
+`verified`, `error_code`, `message`, `details`, `target`, and `foreground`.
+`verified=true` means target identity, dispatch path, and unchanged foreground
+were confirmed, plus effect readback when the target exposes one. A delivered
+message with no observable effect is an error, not success.
+
+`cua_driver_launch_app` accepts exactly one selector and uses case-insensitive
+exact matching for names. `instance_policy="reuse"` and
+`preserve_foreground=true` are the defaults. Unsupported packaged-app launches,
+ambiguous windows, swallowed background keys, and unsafe restore paths are
+rejected explicitly. Background calls never fall back to foreground dispatch;
+call `cua_driver_bring_to_front` or choose `dispatch="foreground"` explicitly.
+
+| Windows target | Background click/value | Keys/text | Restore/screenshot |
+| --- | --- | --- | --- |
+| Native Win32 controls | Cancellable PostMessage/injection paths when verified; `set_value` is unavailable | PostMessage when verified; explicit foreground uses cancellable SendInput | Supported when the native capability verifies it |
+| XAML/WinUI/UWP | Non-cancellable UIA mutations return `background_unavailable` or `tool_unsupported` | Background is rejected; callers may explicitly choose foreground | Only when the native capability verifies it |
+| WebView2/Electron | UIA/CDP background mutations are rejected and never auto-escalate | Unreliable background paths are rejected; callers may explicitly choose foreground | Screenshot is supported after identity verification |
+| No stable PID/HWND | Rejected | Rejected | Rejected |
+
+Windows `page.execute_javascript`, `page.click_element`, and `set_value` remain
+fail-closed until they have a terminable helper-process boundary. Read-only
+`page.get_text` and `page.query_dom` remain available.
+
+Do not blindly retry `tool_unsupported`, `target_ambiguous`, `target_mismatch`,
+`background_no_effect`, `foreground_changed`, `operation_timeout`, or
+`operation_cancelled`. Text failures report confirmed progress so callers can
+decide whether any continuation is safe.
 
 ## Notes
 
@@ -139,5 +183,8 @@ or explicitly call `cua_driver_bring_to_front`.
   shutdown, so interrupted MCP clients do not leave long-lived server workers.
 - `cua_open_session(kind="ephemeral")` keeps the SDK context open until
   `cua_close_session`.
+- `cua_open_session(replace=true)` swaps only after the replacement connects;
+  it never destroys a sandbox implicitly. Destruction requires
+  `cua_close_session(destroy=true)` or `cua_delete_sandbox`.
 - `tool_server_client` remains in dependencies for older integration code, but
   the current MCP tool path does not depend on the HTTP tool server.

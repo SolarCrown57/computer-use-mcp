@@ -1,0 +1,111 @@
+name: Windows interactive background E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "cua-driver.lock.json"
+      - ".github/workflows/windows-interactive-e2e.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "cua-driver.lock.json"
+      - ".github/workflows/windows-interactive-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-interactive-e2e
+  cancel-in-progress: false
+
+jobs:
+  lock-state:
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.lock.outputs.published }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: lock
+        name: Check whether the pinned release is published
+        shell: pwsh
+        run: |
+          $lock = Get-Content cua-driver.lock.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $published = $lock.published -eq $true
+          "published=$($published.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          if ($published -and $lock.assets.'windows-x86_64'.sha256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw "A published driver lock must contain a valid Windows x86_64 SHA256."
+          }
+
+  background-contract:
+    needs: lock-state
+    if: needs.lock-state.outputs.published == 'true'
+    runs-on: [self-hosted, Windows, X64, interactive-desktop, computer-use-e2e]
+    timeout-minutes: 45
+    env:
+      CUA_E2E_INTERACTIVE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.11"
+          enable-cache: true
+          cache-dependency-glob: "mcp_server/uv.lock"
+      - name: Verify interactive runner and published lock
+        shell: pwsh
+        run: |
+          if ($env:SESSIONNAME -eq "Services" -or [string]::IsNullOrWhiteSpace($env:SESSIONNAME)) {
+            throw "The E2E runner must run inside a logged-in interactive desktop session."
+          }
+          if (-not [Environment]::UserInteractive) {
+            throw "The E2E runner process is not attached to an interactive desktop."
+          }
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class E2EUser32 {
+              [DllImport("user32.dll")]
+              public static extern IntPtr GetForegroundWindow();
+          }
+          '@
+          $foreground = [E2EUser32]::GetForegroundWindow()
+          if ($foreground -eq [IntPtr]::Zero) {
+            throw "The E2E desktop has no foreground window; it may be locked or disconnected."
+          }
+          "CUA_E2E_INITIAL_FOREGROUND=$($foreground.ToInt64())" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $lock = Get-Content cua-driver.lock.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($lock.published -ne $true -or $lock.assets.'windows-x86_64'.sha256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw "The pinned fork release is not published and checksummed; E2E cannot use an untrusted driver."
+          }
+      - name: Install pinned driver
+        id: driver
+        shell: pwsh
+        run: |
+          $installed = & ./scripts/install-cua-driver.ps1 -Force
+          "CUA_DRIVER_COMMAND=$($installed.command)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $installed.command --version
+      - name: Install test dependencies
+        working-directory: mcp_server
+        run: uv sync --locked --group test
+      - name: Run interactive background contract
+        working-directory: mcp_server
+        run: >-
+          uv run --locked --group test pytest
+          -m windows_e2e
+          --strict-markers
+          --maxfail=1
+          -vv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-interactive-e2e-logs
+          path: |
+            logs/
+            mcp_server/logs/
+          if-no-files-found: ignore

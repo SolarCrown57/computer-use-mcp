@@ -19,8 +19,9 @@ import argparse
 import ctypes
 import os
 import signal
-import threading
 from ctypes import wintypes
+
+import anyio
 
 
 def _set_windows_dpi_awareness() -> None:
@@ -125,22 +126,72 @@ def _watch_pids() -> list[int]:
     return watched or [os.getppid()]
 
 
-def _start_parent_watchdog() -> None:
+def _force_exit(exit_code: int) -> None:
+    os._exit(exit_code)
+
+
+async def _run_stdio_with_parent_watchdog(
+    *,
+    watched: list[int] | None = None,
+    poll_interval: float = 2.0,
+    shutdown_timeout: float = 10.0,
+) -> None:
     if os.getenv("MCP_SERVER_DISABLE_PARENT_WATCHDOG"):
+        await MCP.run_stdio_async()
         return
 
-    watched = [pid for pid in _watch_pids() if _process_exists(pid)]
-    if not watched:
+    watched_pids = watched
+    if watched_pids is None:
+        watched_pids = [pid for pid in _watch_pids() if _process_exists(pid)]
+    if not watched_pids:
+        await MCP.run_stdio_async()
         return
 
-    def watch() -> None:
-        while all(_process_exists(pid) for pid in watched):
-            threading.Event().wait(2)
-        LOG.warning("Parent process chain %s changed; stopping MCP server.", watched)
-        os._exit(0)
+    server_finished = anyio.Event()
+    server_scope_ready = anyio.Event()
+    server_cancel_scope: anyio.CancelScope | None = None
+    watchdog_triggered = False
 
-    thread = threading.Thread(target=watch, name="parent-watchdog", daemon=True)
-    thread.start()
+    async with anyio.create_task_group() as task_group:
+        async def run_server() -> None:
+            nonlocal server_cancel_scope
+            with anyio.CancelScope() as cancel_scope:
+                server_cancel_scope = cancel_scope
+                server_scope_ready.set()
+                try:
+                    await MCP.run_stdio_async()
+                finally:
+                    server_finished.set()
+                    if not watchdog_triggered:
+                        task_group.cancel_scope.cancel()
+
+        async def watch_parent() -> None:
+            nonlocal watchdog_triggered
+            await server_scope_ready.wait()
+            while all(_process_exists(pid) for pid in watched_pids):
+                await anyio.sleep(poll_interval)
+
+            watchdog_triggered = True
+            LOG.warning("Parent process chain %s changed; stopping MCP server.", watched_pids)
+            assert server_cancel_scope is not None
+            server_cancel_scope.cancel()
+
+            with anyio.move_on_after(shutdown_timeout, shield=True) as cleanup_scope:
+                await server_finished.wait()
+            if cleanup_scope.cancel_called:
+                from mcp_server.tools.cua_sessions import get_cua_manager
+
+                remaining_sessions = get_cua_manager().active_session_ids()
+                LOG.error(
+                    "MCP server did not finish cleanup within %.1f seconds; forcing exit with sessions still registered: %s",
+                    shutdown_timeout,
+                    remaining_sessions,
+                )
+                _force_exit(1)
+            task_group.cancel_scope.cancel()
+
+        task_group.start_soon(run_server)
+        task_group.start_soon(watch_parent)
 
 
 def _install_signal_handlers() -> None:
@@ -171,9 +222,9 @@ def main():
 
     _install_signal_handlers()
     if args.transport == "stdio":
-        _start_parent_watchdog()
-
-    MCP.run(transport=args.transport)
+        anyio.run(_run_stdio_with_parent_watchdog)
+    else:
+        MCP.run(transport=args.transport)
 
 
 if __name__ == "__main__":

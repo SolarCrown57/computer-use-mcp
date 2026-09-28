@@ -10,6 +10,9 @@ Thumbs.db
 **/.pytest_cache/
 **/.mypy_cache/
 **/.ruff_cache/
+**/.coverage
+**/coverage.xml
+**/htmlcov/
 **/.venv/
 **/*.log
 
@@ -22,6 +25,7 @@ frontend/.turbo/
 # Local runtime state
 tmp/
 logs/
+.tools/
 **/.runtime/
 **/.__*.lock
 
